@@ -18,12 +18,14 @@ Open the local URL printed by Vinext. Press **play** once to unlock browser audi
 - Browser limits: JSON imports are capped at 500 KB; export is bounded by the current chain length.
 - Background tabs are not assumed reliable. Visibility changes stop the transport and expose an explicit recovery action.
 - Web MIDI hardware input is intentionally out of scope for v1; MIDI file export is included.
+- The shared event timeline uses a documented 24-tick pre-roll, so the full -24…+24 tick microtiming range survives live playback, MIDI, and WAV export without clamping.
 
 ## Verification
 
 ```sh
 npm run lint
 npm run build
+npm run test:timing
 ```
 
 The browser journey covers fresh start, audio activation, step editing, local save/reload, portable JSON, malformed import rejection, and MIDI/WAV export. Desktop Chrome was exercised during implementation; Safari is untested.

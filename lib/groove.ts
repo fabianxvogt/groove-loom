@@ -1,6 +1,10 @@
 export const PROJECT_VERSION = 1;
 export const STEP_COUNT = 64;
 export const TICKS_PER_STEP = 120;
+export const MAX_MICROTIMING_TICKS = 24;
+/** The exported/playback timeline starts at the earliest supported microtiming position. */
+export const PRE_ROLL_TICKS = MAX_MICROTIMING_TICKS;
+export const RENDER_TAIL_SECONDS = 0.9;
 
 export const TRACKS = [
   { id: 'kick', name: 'Kick', short: 'KICK', color: '#f3a85b', midi: 36 },
@@ -137,15 +141,17 @@ export function buildEventList(project: Project): ScheduledEvent[] {
       pattern[track.id].forEach((stepData, step) => {
         if (stepData.active && random01(project.seed, chainIndex, trackIndex, step) <= stepData.probability) {
           const swingOffset = step % 2 === 1 ? (project.swing - 50) / 1000 : 0;
-          const offset = stepData.offset / 96;
+          const offset = stepData.offset / TICKS_PER_STEP;
           const absoluteStep = baseStep + step;
           events.push({
             id: `${chainIndex}-${track.id}-${step}`,
             trackId: track.id,
             step,
             absoluteStep,
-            tick: Math.max(0, absoluteStep * TICKS_PER_STEP + stepData.offset),
-            time: Math.max(0, absoluteStep * secondsPerStep + swingOffset + offset * secondsPerStep),
+            // PRE_ROLL_TICKS is an explicit shifted origin. It preserves a -24 tick
+            // step-0 edit as tick/time 0 instead of silently clamping the edit away.
+            tick: PRE_ROLL_TICKS + absoluteStep * TICKS_PER_STEP + stepData.offset,
+            time: PRE_ROLL_TICKS / TICKS_PER_STEP * secondsPerStep + absoluteStep * secondsPerStep + swingOffset + offset * secondsPerStep,
             velocity: Math.min(1, Math.max(0.05, stepData.velocity)),
             variation,
             chainIndex,
@@ -165,8 +171,8 @@ export function buildEventList(project: Project): ScheduledEvent[] {
           trackId,
           step,
           absoluteStep,
-          tick: absoluteStep * TICKS_PER_STEP + (index % 2 ? 8 : -6),
-          time: Math.max(0, absoluteStep * secondsPerStep + (index % 2 ? 0.003 : -0.004)),
+          tick: PRE_ROLL_TICKS + absoluteStep * TICKS_PER_STEP + (index % 2 ? 8 : -6),
+          time: PRE_ROLL_TICKS / TICKS_PER_STEP * secondsPerStep + absoluteStep * secondsPerStep + (index % 2 ? 0.003 : -0.004),
           velocity: 0.42 + index * 0.08,
           variation,
           chainIndex,
@@ -177,6 +183,16 @@ export function buildEventList(project: Project): ScheduledEvent[] {
     }
   });
   return events.sort((a, b) => a.time - b.time || a.trackId.localeCompare(b.trackId));
+}
+
+export function getTimelineEndTick(project: Project): number {
+  const secondsPerTick = (60 / project.bpm / 4) / TICKS_PER_STEP;
+  return PRE_ROLL_TICKS + project.chain.length * STEP_COUNT * TICKS_PER_STEP + Math.ceil(RENDER_TAIL_SECONDS / secondsPerTick);
+}
+
+export function getTimelineDurationSeconds(project: Project): number {
+  const secondsPerTick = (60 / project.bpm / 4) / TICKS_PER_STEP;
+  return getTimelineEndTick(project) * secondsPerTick;
 }
 
 function validStep(value: unknown): value is Step {

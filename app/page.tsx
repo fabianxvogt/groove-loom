@@ -7,9 +7,9 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   buildEventList,
-  clamp,
   cloneProject,
   createDefaultProject,
+  getTimelineDurationSeconds,
   normalizeProject,
   projectChecksum,
   STEP_COUNT,
@@ -20,6 +20,7 @@ import {
   VARIATIONS,
   type VariationId,
 } from '@/lib/groove';
+import { createMidiFile } from '@/lib/midi';
 
 type Selection = { variation: VariationId; trackId: TrackId; step: number };
 type LogTone = 'info' | 'success' | 'error' | 'warning';
@@ -40,44 +41,6 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function writeVariableLength(value: number): number[] {
-  let buffer = value & 0x7f;
-  const bytes: number[] = [];
-  while ((value >>= 7)) {
-    buffer <<= 8;
-    buffer |= (value & 0x7f) | 0x80;
-  }
-  while (true) {
-    bytes.push(buffer & 0xff);
-    if (buffer & 0x80) buffer >>= 8;
-    else break;
-  }
-  return bytes;
-}
-
-function makeMidi(project: Project): Blob {
-  const events = buildEventList(project);
-  const messages: { tick: number; data: number[] }[] = [];
-  events.forEach((event) => {
-    const note = TRACKS.find((track) => track.id === event.trackId)?.midi ?? 36;
-    const velocity = Math.round(clamp(event.velocity, 0, 1) * 110);
-    messages.push({ tick: event.tick, data: [0x99, note, velocity] });
-    messages.push({ tick: event.tick + 72, data: [0x89, note, 0] });
-  });
-  messages.sort((a, b) => a.tick - b.tick || a.data[0] - b.data[0]);
-  const microseconds = Math.round(60000000 / project.bpm);
-  const track: number[] = [0, 0xff, 0x51, 3, (microseconds >> 16) & 0xff, (microseconds >> 8) & 0xff, microseconds & 0xff];
-  let lastTick = 0;
-  messages.forEach((message) => {
-    track.push(...writeVariableLength(Math.max(0, message.tick - lastTick)), ...message.data);
-    lastTick = message.tick;
-  });
-  track.push(0, 0xff, 0x2f, 0);
-  const header = [0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 1, 224, 1, 224];
-  const trackHeader = [0x4d, 0x54, 0x72, 0x6b, (track.length >> 24) & 0xff, (track.length >> 16) & 0xff, (track.length >> 8) & 0xff, track.length & 0xff];
-  return new Blob([new Uint8Array([...header, ...trackHeader, ...track])], { type: 'audio/midi' });
-}
-
 function noiseAt(index: number, seed: number): number {
   const x = Math.sin((index + seed * 97.3) * 12.9898) * 43758.5453;
   return (x - Math.floor(x)) * 2 - 1;
@@ -86,8 +49,7 @@ function noiseAt(index: number, seed: number): number {
 function makeWav(project: Project): Blob {
   const events = buildEventList(project);
   const sampleRate = 44100;
-  const secondsPerStep = 60 / project.bpm / 4;
-  const duration = Math.max(1, project.chain.length * STEP_COUNT * secondsPerStep + 0.9);
+  const duration = Math.max(1, getTimelineDurationSeconds(project));
   const samples = new Float32Array(Math.ceil(duration * sampleRate));
   events.forEach((event, eventIndex) => {
     const start = Math.floor(event.time * sampleRate);
@@ -147,7 +109,7 @@ export default function Home() {
   const currentPattern = project.patterns[project.currentVariation];
   const selectedStep = currentPattern[selection.trackId][selection.step];
   const selectedTrack = TRACKS.find((track) => track.id === selection.trackId) ?? TRACKS[0];
-  const loopSeconds = project.chain.length * STEP_COUNT * (60 / project.bpm / 4);
+  const loopSeconds = getTimelineDurationSeconds(project);
 
   const addLog = useCallback((tone: LogTone, logMessage: string) => {
     logId.current += 1;
@@ -256,8 +218,15 @@ export default function Home() {
   const panic = () => { stopTransport(); if (audioRef.current) { void audioRef.current.close(); audioRef.current = null; } setMute(false); setMessage('All voices muted.'); addLog('warning', 'Panic cleared the audio graph.'); };
   const saveSession = () => { try { window.localStorage.setItem('groove-loom-project', JSON.stringify(project)); setMessage('Saved locally on this device.'); addLog('success', `Saved ${project.name} with seed ${project.seed}.`); } catch { addLog('error', 'Local storage is unavailable; use Export JSON instead.'); } };
   const exportJSON = () => { downloadBlob(new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' }), `${project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'groove-loom'}.json`); setMessage('Portable project exported.'); };
-  const exportMidi = () => { downloadBlob(makeMidi(project), `${project.name.replace(/\s+/g, '-').toLowerCase()}.mid`); setMessage(`MIDI exported from ${events.length} scheduled events.`); addLog('success', 'MIDI includes per-step microtiming at 120 ticks per step.'); };
-  const exportWav = () => { downloadBlob(makeWav(project), `${project.name.replace(/\s+/g, '-').toLowerCase()}.wav`); setMessage(`WAV rendered from the same ${events.length}-event schedule used by playback.`); addLog('success', 'Offline render completed without leaving the browser.'); };
+  const exportMidi = () => {
+    const midi = createMidiFile(project);
+    const midiBuffer = new ArrayBuffer(midi.byteLength);
+    new Uint8Array(midiBuffer).set(midi);
+    downloadBlob(new Blob([midiBuffer], { type: 'audio/midi' }), `${project.name.replace(/\s+/g, '-').toLowerCase()}.mid`);
+    setMessage(`MIDI exported from ${events.length} scheduled events.`);
+    addLog('success', 'MIDI includes per-step microtiming at 120 ticks per step and an explicit 24-tick pre-roll.');
+  };
+  const exportWav = () => { downloadBlob(makeWav(project), `${project.name.replace(/\s+/g, '-').toLowerCase()}.wav`); setMessage(`WAV rendered from the same ${events.length}-event schedule used by playback.`); addLog('success', 'Offline render completed from the shared 24-tick pre-roll timeline.'); };
   const importJSON = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
     try { if (file.size > 500_000) throw new Error('That project is larger than the 500 KB safety limit.'); const parsed = normalizeProject(JSON.parse(await file.text())); stopTransport(); setProject(parsed); setSelection({ ...DEFAULT_SELECTION, variation: parsed.currentVariation }); setImportError(''); setMessage('Imported portable project.'); addLog('success', `Imported ${parsed.name}; deterministic seed restored.`); }
@@ -274,7 +243,7 @@ export default function Home() {
         <section className="chain-panel panel-surface"><div className="section-heading"><div><p className="eyebrow">chain / variation memory</p><h2>Shape the loop</h2></div><Button variant="outline" size="sm" onClick={addChainSlot} disabled={project.chain.length >= 16}>+ variation</Button></div><div className="chain-row">{project.chain.map((variation, index) => <button className={`chain-slot ${variation === project.currentVariation ? 'is-current' : ''}`} key={`${index}-${variation}`} onClick={() => cycleChainSlot(index)} aria-label={`Chain slot ${index + 1}, variation ${variation}. Click to cycle.`}><span>{String(index + 1).padStart(2, '0')}</span><strong>{variation}</strong></button>)}</div><p className="helper-text">Click any slot to cycle A → B → C → D. The seed makes probability decisions repeatable.</p></section>
         <section className="grid-panel panel-surface"><div className="section-heading"><div><p className="eyebrow">{project.currentVariation} / 64 steps</p><h2>Timing grid</h2></div><div className="grid-legend"><span className="legend-swatch on" />hit <span className="legend-swatch ghost" />probability <span className="legend-swatch play" />playhead</div></div><div className="grid-scroll"><div className="step-grid"><div className="step-label-grid"><span /><div className="step-numbers">{Array.from({ length: STEP_COUNT }, (_, step) => <span key={step} className={step % 16 === 0 ? 'bar-number' : ''}>{step % 4 === 0 ? String(step + 1).padStart(2, '0') : ''}</span>)}</div></div>{TRACKS.map((track) => <div className="track-row" key={track.id}><button className="track-label" style={{ '--track-color': track.color } as React.CSSProperties} onClick={() => { const firstActive = currentPattern[track.id].findIndex((step) => step.active); setSelection({ variation: project.currentVariation, trackId: track.id, step: firstActive >= 0 ? firstActive : 0 }); }}><span className="track-pip" />{track.short}</button><div className="step-cells">{currentPattern[track.id].map((step, index) => <button key={index} className={`step-cell ${step.active ? 'is-on' : ''} ${step.probability < 1 ? 'is-probabilistic' : ''} ${playhead === index ? 'is-playhead' : ''} ${selection.trackId === track.id && selection.step === index ? 'is-selected' : ''} ${index % 16 === 0 ? 'is-bar-start' : ''} ${index % 4 === 0 ? 'is-beat' : ''}`} style={{ '--track-color': track.color, '--velocity': step.velocity } as React.CSSProperties} onClick={() => toggleStep(track.id, index)} aria-label={`${track.name}, step ${index + 1}, ${step.active ? 'active' : 'inactive'}`} title={`${track.name} ${index + 1} · ${step.active ? `${Math.round(step.velocity * 100)}% velocity` : 'empty'}`}>{step.active && <span />}</button>)}</div></div>)}</div></div><div className="grid-footer"><span>← scroll to edit all 64 steps</span><span><kbd>space</kbd> toggles selected step</span></div></section>
         <section className="bottom-grid"><div className="panel-surface seed-panel"><div className="section-heading"><div><p className="eyebrow">determinism</p><h2>Seed the pocket</h2></div><span className="checksum">{projectChecksum(project)}</span></div><div className="seed-line"><input aria-label="Probability seed" type="number" value={project.seed} onChange={(event) => updateProject((next) => { next.seed = Math.trunc(Number(event.target.value)); })} /><span>probability seed</span></div><p className="helper-text">The same project, seed, and chain always produce the same scheduled event list.</p></div><div className="panel-surface event-panel"><div className="section-heading"><div><p className="eyebrow">scheduler output</p><h2>Event inspector</h2></div><span className="event-count">{events.length} hits</span></div><div className="event-readout"><span className="readout-accent" style={{ background: selectedTrack.color }} /><div><strong>{selectedTrack.name} · step {selection.step + 1}</strong><p>{selectedStep.active ? `${Math.round(selectedStep.velocity * 100)}% velocity · ${Math.round(selectedStep.probability * 100)}% chance · ${selectedStep.offset > 0 ? '+' : ''}${selectedStep.offset} ticks` : 'Inactive step · click the grid to arm it'}</p></div></div><div className="event-mini-row"><span>chain {selection.variation}</span><span>{selectedStep.active ? 'eligible' : 'silent'}</span><span>tick {selection.step * 120 + selectedStep.offset}</span></div></div></section>
-      </div><aside className="inspector-column"><section className="panel-surface inspector-panel"><div className="section-heading"><div><p className="eyebrow">selected event</p><h2>Shape the hit</h2></div><span className="selection-index">{selection.variation} · {selection.step + 1}</span></div><div className="inspector-voice"><span className="track-pip" style={{ background: selectedTrack.color }} /><strong>{selectedTrack.name}</strong><span>voice {String(TRACKS.indexOf(selectedTrack) + 1).padStart(2, '0')}</span></div><div className="inspector-toggle"><span><strong>Active</strong><small>include in the sequence</small></span><Switch checked={selectedStep.active} onCheckedChange={(checked) => updateStep((step) => { step.active = checked; })} /></div><label className="range-control"><span><strong>velocity</strong><output>{Math.round(selectedStep.velocity * 100)}%</output></span><Slider value={[selectedStep.velocity * 100]} min={5} max={100} step={1} onValueChange={(value) => updateStep((step) => { step.velocity = one(value, step.velocity * 100) / 100; })} /></label><label className="range-control"><span><strong>probability</strong><output>{Math.round(selectedStep.probability * 100)}%</output></span><Slider value={[selectedStep.probability * 100]} min={0} max={100} step={1} onValueChange={(value) => updateStep((step) => { step.probability = one(value, step.probability * 100) / 100; })} /></label><label className="range-control"><span><strong>microtiming</strong><output>{selectedStep.offset > 0 ? '+' : ''}{selectedStep.offset} ticks</output></span><Slider value={[selectedStep.offset]} min={-24} max={24} step={1} onValueChange={(value) => updateStep((step) => { step.offset = Math.round(one(value, step.offset)); })} /></label><div className="inspector-note"><span className="note-glyph">↳</span><p><strong>Event clock</strong> uses audio-time scheduling. MIDI keeps this offset at 120 ticks per step; WAV renders the same eligible event list.</p></div></section><section className="panel-surface file-panel"><div className="section-heading"><div><p className="eyebrow">portable session</p><h2>Keep the thread</h2></div><span className="local-badge">local</span></div><div className="file-actions"><Button size="sm" onClick={saveSession}>save session</Button><Button size="sm" variant="outline" onClick={exportJSON}>export JSON</Button><input ref={importRef} type="file" accept="application/json,.json" hidden onChange={importJSON} /><Button size="sm" variant="outline" onClick={() => importRef.current?.click()}>import JSON</Button></div>{importError && <p className="error-line" role="alert">{importError}</p>}<div className="export-actions"><Button variant="secondary" onClick={exportMidi}>↓ MIDI</Button><Button variant="secondary" onClick={exportWav}>↓ WAV</Button></div><p className="helper-text">Nothing leaves this device. JSON is versioned and rejects malformed or oversized files.</p></section><section className="panel-surface safety-panel"><div className="section-heading"><div><p className="eyebrow">engine safety</p><h2>Known boundaries</h2></div><span className="safety-icon">◎</span></div><ul><li>Six synthetic voices · no samples</li><li>Playback halts on tab suspension</li><li>Browser audio needs one explicit play</li></ul>{isSuspended && <Button className="recovery-button" onClick={recoverTransport}>resume after suspension</Button>}</section></aside></section>
+      </div><aside className="inspector-column"><section className="panel-surface inspector-panel"><div className="section-heading"><div><p className="eyebrow">selected event</p><h2>Shape the hit</h2></div><span className="selection-index">{selection.variation} · {selection.step + 1}</span></div><div className="inspector-voice"><span className="track-pip" style={{ background: selectedTrack.color }} /><strong>{selectedTrack.name}</strong><span>voice {String(TRACKS.indexOf(selectedTrack) + 1).padStart(2, '0')}</span></div><div className="inspector-toggle"><span><strong>Active</strong><small>include in the sequence</small></span><Switch checked={selectedStep.active} onCheckedChange={(checked) => updateStep((step) => { step.active = checked; })} /></div><label className="range-control"><span><strong>velocity</strong><output>{Math.round(selectedStep.velocity * 100)}%</output></span><Slider value={[selectedStep.velocity * 100]} min={5} max={100} step={1} onValueChange={(value) => updateStep((step) => { step.velocity = one(value, step.velocity * 100) / 100; })} /></label><label className="range-control"><span><strong>probability</strong><output>{Math.round(selectedStep.probability * 100)}%</output></span><Slider value={[selectedStep.probability * 100]} min={0} max={100} step={1} onValueChange={(value) => updateStep((step) => { step.probability = one(value, step.probability * 100) / 100; })} /></label><label className="range-control"><span><strong>microtiming</strong><output>{selectedStep.offset > 0 ? '+' : ''}{selectedStep.offset} ticks</output></span><Slider value={[selectedStep.offset]} min={-24} max={24} step={1} onValueChange={(value) => updateStep((step) => { step.offset = Math.round(one(value, step.offset)); })} /></label><div className="inspector-note"><span className="note-glyph">↳</span><p><strong>Event clock</strong> uses a 24-tick pre-roll origin, preserving negative offsets in audio, MIDI, and WAV. All three use the same eligible event list and timeline duration.</p></div></section><section className="panel-surface file-panel"><div className="section-heading"><div><p className="eyebrow">portable session</p><h2>Keep the thread</h2></div><span className="local-badge">local</span></div><div className="file-actions"><Button size="sm" onClick={saveSession}>save session</Button><Button size="sm" variant="outline" onClick={exportJSON}>export JSON</Button><input ref={importRef} type="file" accept="application/json,.json" hidden onChange={importJSON} /><Button size="sm" variant="outline" onClick={() => importRef.current?.click()}>import JSON</Button></div>{importError && <p className="error-line" role="alert">{importError}</p>}<div className="export-actions"><Button variant="secondary" onClick={exportMidi}>↓ MIDI</Button><Button variant="secondary" onClick={exportWav}>↓ WAV</Button></div><p className="helper-text">Nothing leaves this device. JSON is versioned and rejects malformed or oversized files.</p></section><section className="panel-surface safety-panel"><div className="section-heading"><div><p className="eyebrow">engine safety</p><h2>Known boundaries</h2></div><span className="safety-icon">◎</span></div><ul><li>Six synthetic voices · no samples</li><li>Playback halts on tab suspension</li><li>Browser audio needs one explicit play</li></ul>{isSuspended && <Button className="recovery-button" onClick={recoverTransport}>resume after suspension</Button>}</section></aside></section>
       <footer className="loom-footer"><span>GROOVE LOOM / procedural percussion instrument</span><span>local compute · no account · {events.length} scheduled hits · {logs[0]?.message ?? 'seeded and ready'}</span></footer><div className="toast-stack" aria-live="polite">{logs.map((log) => <div className={`toast ${log.tone}`} key={log.id}>{log.message}</div>)}</div>
     </main>
   );
