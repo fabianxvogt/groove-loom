@@ -79,17 +79,7 @@ function eventSummary(events: ScheduledEvent[]) {
 }
 
 export default function Home() {
-  const [project, setProject] = useState<Project>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = window.localStorage.getItem('groove-loom-project');
-        if (stored) return normalizeProject(JSON.parse(stored));
-      } catch {
-        // A malformed local cache should never prevent the starter groove from opening.
-      }
-    }
-    return createDefaultProject();
-  });
+  const [project, setProject] = useState<Project>(() => createDefaultProject());
   const projectRef = useRef(project);
   const [selection, setSelection] = useState<Selection>(DEFAULT_SELECTION);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -106,6 +96,22 @@ export default function Home() {
   const intervalRef = useRef<number | null>(null);
   const importRef = useRef<HTMLInputElement | null>(null);
   const logId = useRef(0);
+
+  useEffect(() => {
+    const restore = () => {
+      try {
+        const stored = window.localStorage.getItem('groove-loom-project');
+        if (!stored) return;
+        const restored = normalizeProject(JSON.parse(stored));
+        setProject(restored);
+        setSelection((current) => ({ ...current, variation: restored.currentVariation }));
+      } catch {
+        // A malformed local cache should never prevent the starter groove from opening.
+      }
+    };
+    const restoreTimer = window.setTimeout(restore, 0);
+    return () => window.clearTimeout(restoreTimer);
+  }, []);
 
   const events = useMemo(() => buildEventList(project), [project]);
   const currentPattern = project.patterns[project.currentVariation];

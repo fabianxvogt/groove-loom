@@ -27,6 +27,7 @@ Open the local URL printed by Vinext. Press **play** once to unlock browser audi
 npm run lint
 npm run build
 npm run test:timing
+npm run test:hydration
 ```
 
 The browser journey covers fresh start, audio activation, step editing, local save/reload, portable JSON, malformed import rejection, and MIDI/WAV export. Desktop Chrome was exercised during implementation; Safari is untested.

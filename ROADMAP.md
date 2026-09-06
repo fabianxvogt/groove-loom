@@ -1,10 +1,10 @@
 # Groove Loom roadmap
 
-State: public preview / responsive follow-up
+State: public preview / hydration follow-up
 
 ## Now
 
-- Recheck the narrow-mobile transport status after the responsive wrapping patch.
+- Recheck the public v2 page for the app-origin React hydration error after the deterministic bootstrap fix.
 - Finish serialized desktop and narrow-mobile browser QA, including the documented grid scroll.
 
 ## Next
@@ -27,3 +27,4 @@ State: public preview / responsive follow-up
 - Live transport exposes measured audio-clock drift and peak drift against the wall clock; this is a device/session diagnostic, not a hardware-latency claim.
 - Static public preview deployed at the existing Groove Loom Site version 2 from source `031a750f8cd9f9f137df13366a7e8222253b231f`; the archive contains only public client output.
 - Transport status layout now allows the narrow-mobile message to shrink and wrap without changing scheduling or export behavior; the fresh 390px browser recheck follows the new public version.
+- Hydration bootstrap now renders the deterministic default project first and restores local saved state in a mount effect; the focused source regression passes, while browser confirmation remains open.

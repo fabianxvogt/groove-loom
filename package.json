@@ -11,7 +11,8 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint app lib",
     "format": "oxfmt",
-    "test:timing": "node --experimental-strip-types scripts/timing-regression.mjs"
+    "test:timing": "node --experimental-strip-types scripts/timing-regression.mjs",
+    "test:hydration": "node --experimental-strip-types scripts/hydration-regression.mjs"
   },
   "dependencies": {
     "react": "19.2.6",
