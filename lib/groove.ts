@@ -54,6 +54,10 @@ export type ScheduledEvent = {
   offset: number;
 };
 
+export function getSecondsPerTick(project: Project): number {
+  return (60 / project.bpm / 4) / TICKS_PER_STEP;
+}
+
 function makeStep(active = false, velocity = 0.82, probability = 1, offset = 0): Step {
   return { active, velocity, probability, offset };
 }
@@ -133,16 +137,16 @@ function random01(seed: number, chainIndex: number, trackIndex: number, step: nu
 
 export function buildEventList(project: Project): ScheduledEvent[] {
   const events: ScheduledEvent[] = [];
-  const secondsPerStep = 60 / project.bpm / 4;
+  const secondsPerTick = getSecondsPerTick(project);
   project.chain.forEach((variation, chainIndex) => {
     const pattern = project.patterns[variation];
     const baseStep = chainIndex * STEP_COUNT;
     TRACKS.forEach((track, trackIndex) => {
       pattern[track.id].forEach((stepData, step) => {
-        if (stepData.active && random01(project.seed, chainIndex, trackIndex, step) <= stepData.probability) {
-          const swingOffset = step % 2 === 1 ? (project.swing - 50) / 1000 : 0;
-          const offset = stepData.offset / TICKS_PER_STEP;
+        if (stepData.active && random01(project.seed, chainIndex, trackIndex, step) < stepData.probability) {
+          const swingTicks = step % 2 === 1 ? Math.round(((project.swing - 50) / 1000) / secondsPerTick) : 0;
           const absoluteStep = baseStep + step;
+          const tick = PRE_ROLL_TICKS + absoluteStep * TICKS_PER_STEP + swingTicks + stepData.offset;
           events.push({
             id: `${chainIndex}-${track.id}-${step}`,
             trackId: track.id,
@@ -150,8 +154,8 @@ export function buildEventList(project: Project): ScheduledEvent[] {
             absoluteStep,
             // PRE_ROLL_TICKS is an explicit shifted origin. It preserves a -24 tick
             // step-0 edit as tick/time 0 instead of silently clamping the edit away.
-            tick: PRE_ROLL_TICKS + absoluteStep * TICKS_PER_STEP + stepData.offset,
-            time: PRE_ROLL_TICKS / TICKS_PER_STEP * secondsPerStep + absoluteStep * secondsPerStep + swingOffset + offset * secondsPerStep,
+            tick,
+            time: tick * secondsPerTick,
             velocity: Math.min(1, Math.max(0.05, stepData.velocity)),
             variation,
             chainIndex,
@@ -166,13 +170,14 @@ export function buildEventList(project: Project): ScheduledEvent[] {
       fillSteps.forEach((step, index) => {
         const trackId: TrackId = index % 2 === 0 ? 'tom' : 'snare';
         const absoluteStep = baseStep + step;
+        const tick = PRE_ROLL_TICKS + absoluteStep * TICKS_PER_STEP + (index % 2 ? 8 : -6);
         events.push({
           id: `${chainIndex}-fill-${step}`,
           trackId,
           step,
           absoluteStep,
-          tick: PRE_ROLL_TICKS + absoluteStep * TICKS_PER_STEP + (index % 2 ? 8 : -6),
-          time: PRE_ROLL_TICKS / TICKS_PER_STEP * secondsPerStep + absoluteStep * secondsPerStep + (index % 2 ? 0.003 : -0.004),
+          tick,
+          time: tick * secondsPerTick,
           velocity: 0.42 + index * 0.08,
           variation,
           chainIndex,
@@ -186,12 +191,12 @@ export function buildEventList(project: Project): ScheduledEvent[] {
 }
 
 export function getTimelineEndTick(project: Project): number {
-  const secondsPerTick = (60 / project.bpm / 4) / TICKS_PER_STEP;
+  const secondsPerTick = getSecondsPerTick(project);
   return PRE_ROLL_TICKS + project.chain.length * STEP_COUNT * TICKS_PER_STEP + Math.ceil(RENDER_TAIL_SECONDS / secondsPerTick);
 }
 
 export function getTimelineDurationSeconds(project: Project): number {
-  const secondsPerTick = (60 / project.bpm / 4) / TICKS_PER_STEP;
+  const secondsPerTick = getSecondsPerTick(project);
   return getTimelineEndTick(project) * secondsPerTick;
 }
 
@@ -245,5 +250,5 @@ export function clamp(value: number, min: number, max: number): number {
 
 export function projectChecksum(project: Project): string {
   const events = buildEventList(project);
-  return hashString(`${project.seed}:${events.map((event) => event.id).join('|')}`).toString(16).padStart(8, '0');
+  return hashString(`${JSON.stringify(project)}:${events.map((event) => `${event.id}:${event.tick}:${event.time}`).join('|')}`).toString(16).padStart(8, '0');
 }

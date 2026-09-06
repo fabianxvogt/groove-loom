@@ -1,16 +1,14 @@
 # Groove Loom roadmap
 
-State: verification
+State: verification / timing follow-up
 
 ## Now
 
 - Finish serialized desktop and narrow-mobile browser QA.
-- Independent review of the exact source commit before publication or hosting deployment.
 - Confirm static export archive contains only the public client output.
 
 ## Next
 
-- Improve measured audio-clock drift reporting on long chains.
 - Add a small documented preset library without changing the core schedule contract.
 - Re-test deployed HTTPS audio and file downloads after release approval.
 
@@ -25,3 +23,5 @@ State: verification
 - Shared scheduled event list drives playback, event inspector, MIDI export, and WAV export.
 - Local save, versioned JSON import/export, malformed/oversized input errors, panic, mute, and suspension recovery.
 - Focused lint and production build passing at the implementation checkpoint.
+- Long-chain timing, swing-tick export, zero-probability exclusion, checksum sensitivity, and JSON round-trip regressions passing in the focused timing suite.
+- Live transport exposes measured audio-clock drift and peak drift against the wall clock; this is a device/session diagnostic, not a hardware-latency claim.
