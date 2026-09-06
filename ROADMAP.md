@@ -1,10 +1,11 @@
 # Groove Loom roadmap
 
-State: verification / timing follow-up
+State: verification / responsive follow-up
 
 ## Now
 
-- Finish serialized desktop and narrow-mobile browser QA.
+- Recheck the narrow-mobile transport status after the responsive wrapping patch.
+- Finish serialized desktop and narrow-mobile browser QA, including the documented grid scroll.
 - Confirm static export archive contains only the public client output.
 
 ## Next
@@ -25,3 +26,4 @@ State: verification / timing follow-up
 - Focused lint and production build passing at the implementation checkpoint.
 - Long-chain timing, swing-tick export, zero-probability exclusion, checksum sensitivity, and JSON round-trip regressions passing in the focused timing suite.
 - Live transport exposes measured audio-clock drift and peak drift against the wall clock; this is a device/session diagnostic, not a hardware-latency claim.
+- Transport status layout now allows the narrow-mobile message to shrink and wrap without changing scheduling or export behavior; a fresh 390px browser recheck remains open.
