@@ -1,3 +1,13 @@
+<!-- portfolio
+{
+  "title": "Groove Loom",
+  "topic": "Music/Sound & rhythm",
+  "type": "product",
+  "description": "Compose percussion patterns in a browser sequencer.",
+  "demo": "https://groove-loom.fabian523417.chatgpt.site"
+}
+-->
+
 # Groove Loom
 
 Groove Loom is a browser-first percussion instrument for expressive timing. It gives six synthetic drum voices a 64-step pattern surface, per-step velocity/probability/microtiming, swing, fills, deterministic seeds, variation chains, an event inspector, and local MIDI/WAV/JSON export.
