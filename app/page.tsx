@@ -21,6 +21,7 @@ import {
   type VariationId,
 } from '@/lib/groove';
 import { createMidiFile } from '@/lib/midi';
+import { noiseAt, PlaybackTransport } from '@/lib/playback';
 
 type Selection = { variation: VariationId; trackId: TrackId; step: number };
 type LogTone = 'info' | 'success' | 'error' | 'warning';
@@ -39,11 +40,6 @@ function downloadBlob(blob: Blob, filename: string) {
   anchor.download = filename;
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function noiseAt(index: number, seed: number): number {
-  const x = Math.sin((index + seed * 97.3) * 12.9898) * 43758.5453;
-  return (x - Math.floor(x)) * 2 - 1;
 }
 
 function makeWav(project: Project): Blob {
@@ -83,6 +79,7 @@ export default function Home() {
   const projectRef = useRef(project);
   const [selection, setSelection] = useState<Selection>(DEFAULT_SELECTION);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const [isSuspended, setIsSuspended] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const [clockDriftMs, setClockDriftMs] = useState<number | null>(null);
@@ -92,7 +89,7 @@ export default function Home() {
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [importError, setImportError] = useState('');
   const audioRef = useRef<AudioContext | null>(null);
-  const timerRef = useRef<number | null>(null);
+  const transportRef = useRef(new PlaybackTransport());
   const intervalRef = useRef<number | null>(null);
   const importRef = useRef<HTMLInputElement | null>(null);
   const logId = useRef(0);
@@ -127,19 +124,33 @@ export default function Home() {
 
   useEffect(() => { projectRef.current = project; }, [project]);
 
+  const clearPlayback = useCallback(() => {
+    transportRef.current.stop();
+    if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
+    intervalRef.current = null;
+  }, []);
+  const closeAudio = useCallback(() => {
+    const audio = audioRef.current; audioRef.current = null;
+    if (audio && audio.state !== 'closed') void audio.close().catch(() => undefined);
+  }, []);
+  const stopTransport = useCallback(() => {
+    clearPlayback(); setIsPlaying(false); setIsStarting(false); setPlayhead(0);
+  }, [clearPlayback]);
+
   useEffect(() => {
     const onVisibility = () => {
-      if (document.hidden && isPlaying) {
-        if (timerRef.current) window.clearTimeout(timerRef.current);
-        if (intervalRef.current) window.clearInterval(intervalRef.current);
-        if (audioRef.current) { void audioRef.current.close(); audioRef.current = null; }
-        setIsPlaying(false); setIsSuspended(true); setMessage('Tab suspended — transport stopped safely. Resume to resync.');
+      if (document.hidden && transportRef.current.active) {
+        stopTransport(); closeAudio();
+        setIsSuspended(true); setMessage('Tab suspended — transport stopped safely. Resume to resync.');
         addLog('warning', 'Suspension recovered: playback stopped before the tab went idle.');
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [addLog, isPlaying]);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearPlayback(); closeAudio();
+    };
+  }, [addLog, clearPlayback, closeAudio, stopTransport]);
 
   useEffect(() => {
     const documentWithModelContext = document as Document & { modelContext?: { registerTool: (tool: { name: string; title?: string; description: string; inputSchema: object; annotations?: object; execute: (input: unknown) => unknown }, options?: { signal?: AbortSignal }) => void | Promise<void> } };
@@ -199,27 +210,15 @@ export default function Home() {
     const audio = audioRef.current ?? new AudioContextClass(); audioRef.current = audio; await audio.resume(); return audio;
   };
 
-  const playVoice = (audio: AudioContext, event: ScheduledEvent, at: number) => {
-    if (mute) return;
-    const output = audio.createGain();
-    output.gain.setValueAtTime(Math.min(0.22, 0.06 + event.velocity * 0.16), at);
-    output.gain.exponentialRampToValueAtTime(0.001, at + (event.trackId === 'hat' ? 0.06 : event.trackId === 'kick' ? 0.38 : 0.18)); output.connect(audio.destination);
-    if (event.trackId === 'kick' || event.trackId === 'tom') {
-      const oscillator = audio.createOscillator(); oscillator.type = event.trackId === 'kick' ? 'sine' : 'triangle';
-      oscillator.frequency.setValueAtTime(event.trackId === 'kick' ? 130 : 180 + event.velocity * 60, at); oscillator.frequency.exponentialRampToValueAtTime(event.trackId === 'kick' ? 44 : 92, at + 0.14); oscillator.connect(output); oscillator.start(at); oscillator.stop(at + 0.42);
-    } else {
-      const noise = audio.createBufferSource(); const buffer = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.2), audio.sampleRate); const data = buffer.getChannelData(0);
-      for (let i = 0; i < data.length; i += 1) data[i] = noiseAt(i + event.absoluteStep * 13, project.seed);
-      noise.buffer = buffer; const filter = audio.createBiquadFilter(); filter.type = event.trackId === 'hat' ? 'highpass' : 'bandpass'; filter.frequency.value = event.trackId === 'hat' ? 6200 : 1600; noise.connect(filter); filter.connect(output); noise.start(at); noise.stop(at + 0.2);
-    }
-  };
-
-  const stopTransport = useCallback(() => { if (timerRef.current) window.clearTimeout(timerRef.current); if (intervalRef.current) window.clearInterval(intervalRef.current); setIsPlaying(false); setPlayhead(0); }, []);
   const startTransport = async () => {
+    if (transportRef.current.active) { stopTransport(); setMessage('Playback stopped.'); return; }
+    setIsStarting(true); setMessage('Starting audio…');
     try {
-      const audio = await getAudio();
-      if (isPlaying) { stopTransport(); return; }
-      const scheduled = buildEventList(project); const startAt = audio.currentTime + 0.08; scheduled.forEach((event) => playVoice(audio, event, startAt + event.time));
+      const scheduled = buildEventList(project);
+      const started = await transportRef.current.start(getAudio, scheduled, project.seed);
+      if (!started) return;
+      const { audio, startAt } = started;
+      setIsStarting(false);
       const startedAt = performance.now();
       const audioStartedAt = audio.currentTime;
       setClockDriftMs(0); setPeakClockDriftMs(0); setIsSuspended(false); setIsPlaying(true); setMessage(`${eventSummary(scheduled)} · live clock armed`); addLog('success', `Playing ${scheduled.length} seeded events from ${project.chain.length}-bar chain.`);
@@ -229,12 +228,16 @@ export default function Home() {
         const measuredDrift = Math.round((audioElapsed - wallElapsed) * 1000 * 10) / 10;
         setClockDriftMs(measuredDrift);
         setPeakClockDriftMs((current) => Math.max(Math.abs(current ?? 0), Math.abs(measuredDrift)));
-        setPlayhead(Math.floor((wallElapsed / (60 / project.bpm / 4)) % (project.chain.length * STEP_COUNT)));
+        const passElapsed = Math.max(0, audio.currentTime - startAt);
+        setPlayhead(Math.floor((passElapsed / (60 / project.bpm / 4)) % (project.chain.length * STEP_COUNT)));
+        if (passElapsed >= loopSeconds) { stopTransport(); setMessage('Loop complete.'); }
       }, 40);
-      timerRef.current = window.setTimeout(() => { stopTransport(); setMessage('Loop complete.'); }, (loopSeconds + 0.2) * 1000);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Audio could not start.'); addLog('error', 'Audio start failed; check browser permission and try again.'); }
+    } catch (error) { stopTransport(); setMessage(error instanceof Error ? error.message : 'Audio could not start.'); addLog('error', 'Audio start failed; check browser permission and try again.'); }
   };
-  const panic = () => { stopTransport(); if (audioRef.current) { void audioRef.current.close(); audioRef.current = null; } setMute(false); setMessage('All voices muted.'); addLog('warning', 'Panic cleared the audio graph.'); };
+  const toggleMute = () => {
+    const next = !mute; transportRef.current.setMuted(next); setMute(next);
+  };
+  const panic = () => { stopTransport(); closeAudio(); transportRef.current.setMuted(false); setMute(false); setIsSuspended(false); setMessage('All voices stopped.'); addLog('warning', 'Panic cleared the audio graph.'); };
   const saveSession = () => { try { window.localStorage.setItem('groove-loom-project', JSON.stringify(project)); setMessage('Saved locally on this device.'); addLog('success', `Saved ${project.name} with seed ${project.seed}.`); } catch { addLog('error', 'Local storage is unavailable; use Export JSON instead.'); } };
   const exportJSON = () => { downloadBlob(new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' }), `${project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'groove-loom'}.json`); setMessage('Portable project exported.'); };
   const exportMidi = () => {
@@ -257,7 +260,7 @@ export default function Home() {
     <main className="loom-app">
       <header className="loom-header"><div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><span /><span /><span /></div><div><p className="eyebrow">instrument / 83</p><h1>Groove Loom</h1></div></div><div className="header-status"><span className={isPlaying ? 'status-dot is-live' : 'status-dot'} />{isPlaying ? 'transport live' : isSuspended ? 'suspended safely' : 'offline-ready'}<span className="header-divider" />seed <strong>{project.seed}</strong></div></header>
       <section className="workbench"><div className="main-column">
-        <section className="transport-panel panel-surface"><div className="transport-main"><Button className="play-button" onClick={startTransport} aria-label={isPlaying ? 'Stop playback' : 'Start playback'}>{isPlaying ? '■ stop' : '▶ play'}</Button><div><p className="eyebrow">{project.name}</p><p className="message-line">{message}</p></div></div><div className="transport-meters"><label>tempo <strong>{project.bpm}</strong><span>BPM</span><Slider value={[project.bpm]} min={60} max={180} step={1} onValueChange={(value) => updateProject((next) => { next.bpm = Math.round(one(value, next.bpm)); })} /></label><label>swing <strong>{project.swing}%</strong><Slider value={[project.swing]} min={50} max={72} step={1} onValueChange={(value) => updateProject((next) => { next.swing = Math.round(one(value, next.swing)); })} /></label><span className="clock-readout" title="Audio clock minus wall clock while transport runs">drift {clockDriftMs === null ? '—' : `${clockDriftMs > 0 ? '+' : ''}${clockDriftMs.toFixed(1)} ms`}<small>{peakClockDriftMs === null ? 'waiting' : `peak ${peakClockDriftMs.toFixed(1)} ms`}</small></span><Button variant="outline" size="sm" onClick={panic}>panic</Button><Button variant={mute ? 'default' : 'outline'} size="sm" onClick={() => setMute((value) => !value)}>{mute ? 'muted' : 'mute'}</Button></div></section>
+        <section className="transport-panel panel-surface"><div className="transport-main"><Button className="play-button" onClick={startTransport} aria-label={isStarting ? 'Cancel audio start' : isPlaying ? 'Stop playback' : 'Start playback'}>{isStarting ? '■ cancel' : isPlaying ? '■ stop' : '▶ play'}</Button><div><p className="eyebrow">{project.name}</p><p className="message-line">{message}</p></div></div><div className="transport-meters"><label>tempo <strong>{project.bpm}</strong><span>BPM</span><Slider value={[project.bpm]} min={60} max={180} step={1} onValueChange={(value) => updateProject((next) => { next.bpm = Math.round(one(value, next.bpm)); })} /></label><label>swing <strong>{project.swing}%</strong><Slider value={[project.swing]} min={50} max={72} step={1} onValueChange={(value) => updateProject((next) => { next.swing = Math.round(one(value, next.swing)); })} /></label><span className="clock-readout" title="Audio clock minus wall clock while transport runs">drift {clockDriftMs === null ? '—' : `${clockDriftMs > 0 ? '+' : ''}${clockDriftMs.toFixed(1)} ms`}<small>{peakClockDriftMs === null ? 'waiting' : `peak ${peakClockDriftMs.toFixed(1)} ms`}</small></span><Button variant="outline" size="sm" onClick={panic}>panic</Button><Button variant={mute ? 'default' : 'outline'} size="sm" onClick={toggleMute} aria-pressed={mute}>{mute ? 'muted' : 'mute'}</Button></div></section>
         <section className="control-strip"><div className="strip-block"><span className="eyebrow">kit</span><div className="kit-options">{(['neon', 'oxide', 'paper'] as const).map((kit) => <Button key={kit} variant={project.kit === kit ? 'default' : 'outline'} size="sm" onClick={() => updateProject((next) => { next.kit = kit; })}>{kit}</Button>)}</div></div><div className="strip-block"><span className="eyebrow">variation</span><Tabs value={project.currentVariation} onValueChange={(value) => { const variation = value as VariationId; updateProject((next) => { next.currentVariation = variation; }); setSelection((current) => ({ ...current, variation })); }}><TabsList variant="line" className="variation-tabs">{VARIATIONS.map((variation) => <TabsTrigger key={variation} value={variation}>{variation}</TabsTrigger>)}</TabsList></Tabs></div><div className="strip-block fill-block"><span className="eyebrow">fill pass</span><Button variant={currentPattern.fill ? 'default' : 'outline'} size="sm" onClick={() => updateProject((next) => { next.patterns[next.currentVariation].fill = !next.patterns[next.currentVariation].fill; })}>{currentPattern.fill ? 'armed · last beat' : 'off · add fill'}</Button></div></section>
         <section className="chain-panel panel-surface"><div className="section-heading"><div><p className="eyebrow">chain / variation memory</p><h2>Shape the loop</h2></div><Button variant="outline" size="sm" onClick={addChainSlot} disabled={project.chain.length >= 16}>+ variation</Button></div><div className="chain-row">{project.chain.map((variation, index) => <button className={`chain-slot ${variation === project.currentVariation ? 'is-current' : ''}`} key={`${index}-${variation}`} onClick={() => cycleChainSlot(index)} aria-label={`Chain slot ${index + 1}, variation ${variation}. Click to cycle.`}><span>{String(index + 1).padStart(2, '0')}</span><strong>{variation}</strong></button>)}</div><p className="helper-text">Click any slot to cycle A → B → C → D. The seed makes probability decisions repeatable.</p></section>
         <section className="grid-panel panel-surface"><div className="section-heading"><div><p className="eyebrow">{project.currentVariation} / 64 steps</p><h2>Timing grid</h2></div><div className="grid-legend"><span className="legend-swatch on" />hit <span className="legend-swatch ghost" />probability <span className="legend-swatch play" />playhead</div></div><div className="grid-scroll"><div className="step-grid"><div className="step-label-grid"><span /><div className="step-numbers">{Array.from({ length: STEP_COUNT }, (_, step) => <span key={step} className={step % 16 === 0 ? 'bar-number' : ''}>{step % 4 === 0 ? String(step + 1).padStart(2, '0') : ''}</span>)}</div></div>{TRACKS.map((track) => <div className="track-row" key={track.id}><button className="track-label" style={{ '--track-color': track.color } as React.CSSProperties} onClick={() => { const firstActive = currentPattern[track.id].findIndex((step) => step.active); setSelection({ variation: project.currentVariation, trackId: track.id, step: firstActive >= 0 ? firstActive : 0 }); }}><span className="track-pip" />{track.short}</button><div className="step-cells">{currentPattern[track.id].map((step, index) => <button key={index} className={`step-cell ${step.active ? 'is-on' : ''} ${step.probability < 1 ? 'is-probabilistic' : ''} ${playhead === index ? 'is-playhead' : ''} ${selection.trackId === track.id && selection.step === index ? 'is-selected' : ''} ${index % 16 === 0 ? 'is-bar-start' : ''} ${index % 4 === 0 ? 'is-beat' : ''}`} style={{ '--track-color': track.color, '--velocity': step.velocity } as React.CSSProperties} onClick={() => toggleStep(track.id, index)} aria-label={`${track.name}, step ${index + 1}, ${step.active ? 'active' : 'inactive'}`} title={`${track.name} ${index + 1} · ${step.active ? `${Math.round(step.velocity * 100)}% velocity` : 'empty'}`}>{step.active && <span />}</button>)}</div></div>)}</div></div><div className="grid-footer"><span>← scroll to edit all 64 steps</span><span><kbd>space</kbd> toggles selected step</span></div></section>

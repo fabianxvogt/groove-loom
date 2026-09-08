@@ -1,8 +1,10 @@
 # Groove Loom roadmap
 
-State: public preview / hydration follow-up
+State: transport repair verified locally / independent review and hosting access pending
 
 ## Now
+
+- Review the [audible transport repair](docs/transport-repair.md) independently, resolve the saved Site lookup failure, then verify and publish the exact reviewed source. Current/future voice cancellation, live Mute/Unmute and deferred-start cancellation pass local tests.
 
 - Recheck the public v2 page for the app-origin React hydration error after the deterministic bootstrap fix.
 - Finish serialized desktop and narrow-mobile browser QA, including the documented grid scroll.
@@ -18,6 +20,8 @@ State: public preview / hydration follow-up
 - Optional AudioWorklet voice engine if measurements show main-thread scheduling is insufficient.
 
 ## Done
+
+- 2026-09-08: repaired Stop/Mute ownership of scheduled voices, pending audio cancellation and teardown. Completion/playhead use the audio clock. Eight lifecycle tests, timing/hydration regressions, lint, typecheck and production build pass; a browser render measured exact silence during Mute and after Stop. This repair has not been published.
 
 - Six procedural voices, 64-step editable patterns, four variations, chain editing, fills, swing, deterministic probability seed.
 - Shared scheduled event list drives playback, event inspector, MIDI export, and WAV export.

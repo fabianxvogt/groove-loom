@@ -3,6 +3,7 @@
 This folder keeps the small amount of project-specific evidence needed to navigate the release.
 
 - `README.md` — this map and evidence status.
+- [transport-repair.md](transport-repair.md) — Stop/Mute, cancellation, audio render evidence and release blockers.
 - `../ROADMAP.md` — Now / Next / Later / Done and release state.
 - `../README.md` — user-facing scope, limits, local quickstart, and verification notes.
 
@@ -10,5 +11,5 @@ This folder keeps the small amount of project-specific evidence needed to naviga
 
 - Classification: `INCREMENTAL` product implementation.
 - Evidence labels: browser journey and build results are `EMPIRICAL`; the deterministic schedule contract is `FORMAL` within the finite v1 model.
-- Publication: held for independent review of the exact source commit.
-- Hosting: Site registered privately; no public deployment has been made.
+- Publication: the transport repair is local and awaits independent review.
+- Hosting: earlier public-preview evidence is recorded in the roadmap. The 2026-09-08 Sites lookup returned “project not found” for the saved ID; current public status could not be verified. No deployment was made in this repair.

@@ -12,7 +12,8 @@
     "lint": "oxlint app lib",
     "format": "oxfmt",
     "test:timing": "node --experimental-strip-types scripts/timing-regression.mjs",
-    "test:hydration": "node --experimental-strip-types scripts/hydration-regression.mjs"
+    "test:hydration": "node --experimental-strip-types scripts/hydration-regression.mjs",
+    "test:playback": "node --experimental-strip-types scripts/playback-regression.mjs"
   },
   "dependencies": {
     "react": "19.2.6",

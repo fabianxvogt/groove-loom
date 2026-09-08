@@ -16,6 +16,7 @@ Open the local URL printed by Vinext. Press **play** once to unlock browser audi
 - Six procedural voices: kick, snare, closed hat, clap, perc, tom.
 - Four-bar default chain built from four editable 64-step variations.
 - Browser limits: JSON imports are capped at 500 KB; export is bounded by the current chain length.
+- Stop cancels current and future voices. Mute/Unmute affects the current pass; panic clears the audio graph.
 - Background tabs are not assumed reliable. Visibility changes stop the transport and expose an explicit recovery action.
 - Web MIDI hardware input is intentionally out of scope for v1; MIDI file export is included.
 - The shared event timeline uses a documented 24-tick pre-roll, so the full -24…+24 tick microtiming range survives live playback, MIDI, and WAV export without clamping.
@@ -28,9 +29,12 @@ npm run lint
 npm run build
 npm run test:timing
 npm run test:hydration
+npm run test:playback
 ```
 
 The browser journey covers fresh start, audio activation, step editing, local save/reload, portable JSON, malformed import rejection, and MIDI/WAV export. Desktop Chrome was exercised during implementation; Safari is untested.
+
+The [transport repair evidence](docs/transport-repair.md) records the local audio lifecycle checks and outstanding release gates.
 
 ## License
 

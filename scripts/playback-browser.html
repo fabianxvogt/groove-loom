@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Groove Loom playback probe</title>
+<body><h1>Groove Loom playback probe</h1><button id="run">Run audio check</button><pre id="result">Ready</pre>
+<script type="module">
+  import { schedulePlayback } from './playback.mjs';
+  document.querySelector('#run').onclick = async () => {
+    const result = document.querySelector('#result');
+    result.textContent = 'Rendering…';
+    try {
+      const audio = new OfflineAudioContext(1, 24000 * 2.4, 24000);
+      const events = [0, .4, .8, 1.2, 1.6, 1.9].map((time, absoluteStep) => ({ trackId: 'kick', velocity: 1, time, absoluteStep }));
+      const pass = schedulePlayback(audio, events, 19, false);
+      const mute = audio.suspend(.64).then(() => { pass.setMuted(true); return audio.resume(); });
+      const unmute = audio.suspend(1.15).then(() => { pass.setMuted(false); return audio.resume(); });
+      const stop = audio.suspend(1.7).then(() => { pass.stop(); return audio.resume(); });
+      const rendered = await audio.startRendering();
+      await Promise.all([mute, unmute, stop]);
+      const samples = rendered.getChannelData(0);
+      const rms = (from, to) => {
+        const section = samples.slice(Math.ceil(from * 24000), Math.floor(to * 24000));
+        return Math.sqrt(section.reduce((sum, value) => sum + value * value, 0) / section.length);
+      };
+      const measurements = { beforeMute: rms(.1, .3), muted: rms(.7, 1.1), afterUnmute: rms(1.3, 1.5), afterStop: rms(1.8, 2.3) };
+      if (!(measurements.beforeMute > .01 && measurements.muted === 0 && measurements.afterUnmute > .01 && measurements.afterStop === 0)) throw new Error(JSON.stringify(measurements));
+      result.textContent = 'PASS — audible before mute and after unmute; exact silence while muted and after stop, including a future hit.\n' + JSON.stringify(measurements, null, 2) + '\n' + navigator.userAgent;
+    } catch (error) { result.textContent = 'FAIL — ' + error.message; }
+  };
+</script></body></html>
