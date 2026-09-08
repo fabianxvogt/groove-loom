@@ -13,4 +13,8 @@ This folder keeps the small amount of project-specific evidence needed to naviga
 - Evidence labels: browser journey and build results are `EMPIRICAL`; the deterministic schedule contract is `FORMAL` within the finite v1 model.
 - Publication: the transport repair is local; independent review accepted the exact
   code revision, while hosting access and deployment remain open.
+- Source publication: branch `codex/audible-transport-repair-20260908` was pushed
+  to [GitHub](https://github.com/fabianxvogt/groove-loom/tree/codex/audible-transport-repair-20260908)
+  and the remote SHA matched local at publication. This is source publication
+  only and does not claim a Site update.
 - Hosting: earlier public-preview evidence is recorded in the roadmap. The 2026-09-08 Sites lookup returned “project not found” for the saved ID; current public status could not be verified. No deployment was made in this repair.
