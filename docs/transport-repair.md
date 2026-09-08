@@ -1,7 +1,8 @@
 # Audible transport repair — 2026-09-08
 
 Classification: **INCREMENTAL**. Evidence: **EMPIRICAL**. Local implementation and
-verification are complete; independent review and publication remain open.
+verification are complete; independent review is accepted for code revision
+`904f92474a69c81346c3de7129e42402bca1f3d2`. Publication remains open.
 
 ## Defect and change
 
@@ -38,6 +39,26 @@ JSON format and MIDI/WAV exports are preserved.
   state, Unmute restores the control, and Stop returns to idle with its message.
   The final build also returned to “Loop complete” after a natural pass; its
   displayed final clock drift was -21.5 ms (one session, not a performance bound).
+- Browser lifecycle pass at `http://localhost:48103/`: a live pass changed Play to
+  Stop; Mute and Unmute worked while it was running; importing the exported JSON
+  during playback returned the transport to idle and reported “Imported portable
+  project.”; and Panic returned idle with “Panic cleared the audio graph.” Browser
+  console warnings and errors were empty.
+- Portable/native artifacts from the same browser pass were written locally. The
+  native open handoff accepted the MIDI file in FL Studio 21 and the WAV file in
+  Preview; both apps were running afterward. JSON import restored the Night
+  Transit project and deterministic seed; MIDI was recognized as a 1-track
+  format-0 Standard MIDI file (1,501 bytes); WAV was recognized as RIFF PCM,
+  mono, 44.1 kHz, 16-bit (3,105,846 bytes; 35.213175 seconds).
+- Responsive pass used the temporary narrow viewport `480 × 844` CSS pixels. The
+  controls and pattern surface remained rendered; the 64-step timing grid keeps
+  its intended horizontal scroll surface at that width. The normal viewport was
+  restored afterward (`2560 × 1440`, no document overflow).
+- A browser permission-pending state was not reproducible in this harness because
+  `AudioContext.resume()` settled immediately; cancellation is covered by the
+  playback regression suite and independent source review. Likewise, the
+  in-app-browser tab stayed `visible` when a second tab was opened, so true
+  `visibilitychange` suspension/recovery was not claimed from this pass.
 
 To repeat the browser probe, transpile `lib/playback.ts` using the repository's
 TypeScript `transpileModule` with ES2022 module/target, save as `playback.mjs` in a
@@ -47,14 +68,14 @@ production scheduling module; the probe and temporary output are not client asse
 
 ## Release limits and next check
 
-Independent source review through the configured Luna L1 route is pending because
-this Codex session has no `l1_session` tool. No substitute workers were launched.
+The dedicated independent source review accepted the exact code revision
+`904f92474a69c81346c3de7129e42402bca1f3d2`, with independent lifecycle probes.
 The Sites read for the exact `.openai/hosting.json` project ID also returned
 `SitesConnectorError: Sites project not found` on 2026-09-08. No hosting ID was
 changed and no source push, saved version or deployment was attempted.
 
-Before release: independent review, actual device listening and suspension/recovery,
-pending-permission cancellation in a browser, narrow viewport, and deployed HTTPS
-recheck. The offline waveform measurement does not establish hardware latency,
-background performance, Safari compatibility, or independent acceptance. Broader
-producer handoff validation remains governed by the product roadmap.
+Before release: actual device listening and suspension/recovery, pending-permission
+cancellation in a browser, and deployed HTTPS recheck remain open. The offline
+waveform measurement does not establish hardware latency, background performance,
+Safari compatibility, or a deployed-site result. Broader producer handoff
+validation remains governed by the product roadmap.
