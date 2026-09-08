@@ -2,7 +2,8 @@
 
 Classification: **INCREMENTAL**. Evidence: **EMPIRICAL**. Local implementation and
 verification are complete; independent review is accepted for code revision
-`904f92474a69c81346c3de7129e42402bca1f3d2`. Publication remains open.
+`904f92474a69c81346c3de7129e42402bca1f3d2`. GitHub source publication is
+complete; Site publication remains open.
 
 ## Defect and change
 
@@ -45,11 +46,13 @@ JSON format and MIDI/WAV exports are preserved.
   project.”; and Panic returned idle with “Panic cleared the audio graph.” Browser
   console warnings and errors were empty.
 - Portable/native artifacts from the same browser pass were written locally. The
-  native open handoff accepted the MIDI file in FL Studio 21 and the WAV file in
-  Preview; both apps were running afterward. JSON import restored the Night
-  Transit project and deterministic seed; MIDI was recognized as a 1-track
-  format-0 Standard MIDI file (1,501 bytes); WAV was recognized as RIFF PCM,
-  mono, 44.1 kHz, 16-bit (3,105,846 bytes; 35.213175 seconds).
+  native open handoff completed for the MIDI file in FL Studio 21 and the WAV
+  file in Preview; both apps were running afterward. This verifies native app
+  launch handoff only, not DAW ingestion, track rendering, or audible native-app
+  playback. JSON import restored the Night Transit project and deterministic
+  seed; MIDI was recognized as a 1-track format-0 Standard MIDI file (1,501
+  bytes); WAV was recognized as RIFF PCM, mono, 44.1 kHz, 16-bit (3,105,846
+  bytes; 35.213175 seconds).
 - Responsive pass used the temporary narrow viewport `480 × 844` CSS pixels. The
   controls and pattern surface remained rendered; the 64-step timing grid keeps
   its intended horizontal scroll surface at that width. The normal viewport was
@@ -72,7 +75,10 @@ The dedicated independent source review accepted the exact code revision
 `904f92474a69c81346c3de7129e42402bca1f3d2`, with independent lifecycle probes.
 The Sites read for the exact `.openai/hosting.json` project ID also returned
 `SitesConnectorError: Sites project not found` on 2026-09-08. No hosting ID was
-changed and no source push, saved version or deployment was attempted.
+changed, saved version or Site deployment was attempted. GitHub source
+publication was completed on branch `codex/audible-transport-repair-20260908`;
+the local and remote branch heads were verified equal at
+`252c9b626d8ae5241e2f77bccb5124f1dea2f25d`.
 
 Before release: actual device listening and suspension/recovery, pending-permission
 cancellation in a browser, and deployed HTTPS recheck remain open. The offline
